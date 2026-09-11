@@ -19,7 +19,6 @@
 <link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/svg+xml" href="icon.svg">
 <link rel="apple-touch-icon" href="icon-192.png">
-<title>Around the World — Endless Runner</title>
 <style>
   *{box-sizing:border-box;user-select:none;-webkit-tap-highlight-color:transparent;margin:0;padding:0}
   html,body{height:100%;overflow:hidden;
@@ -691,9 +690,10 @@ const G = {
   settingsResetArmed:0,        // timer for two-tap confirm
   settingsToast:'', settingsToastT:0,
   mobileHintShown:false,
-  menuPress:null,              // press animation
+    menuPress:null,              // press animation
   lastInputWasTouch:false,
-  showDoubleCoinsOffer:false
+  showDoubleCoinsOffer:false,
+  lastTapTime:0
 };
 
 const player = {
@@ -1735,7 +1735,7 @@ function drawOverlays(){
       ctx.shadowColor=P.goldGlow; ctx.shadowBlur=24;
       ctx.font='bold 18px ui-monospace, monospace';
       ctx.fillStyle='#ffe680';
-      ctx.fillText('TAP / SPACE TO RETRY', CW/2, 470);
+      ctx.fillText('TAP / SPACE TO RETRY', CW/2, 500);
       ctx.globalAlpha=1;
     }
 
@@ -2756,13 +2756,28 @@ cv.addEventListener('pointerdown', function(e){
   }
 
   if(G.state === 'over'){
+    /* double-coins offer takes priority over retry */
+    if(G.showDoubleCoinsOffer &&
+       mx >= BTN_DOUBLE_COINS.x && mx <= BTN_DOUBLE_COINS.x + BTN_DOUBLE_COINS.w &&
+       my >= BTN_DOUBLE_COINS.y && my <= BTN_DOUBLE_COINS.y + BTN_DOUBLE_COINS.h){
+      Ads.showRewarded('double_coins', ()=>{
+        progress.totalCoins += G.coins;
+        saveProgress();
+        G.showDoubleCoinsOffer = false;
+        sfx(880,0.10,'sine',0.06,1320);
+        vibrate([20,30,20]);
+        Analytics.track('double_coins_reward');
+      }, ()=>{
+        G.showDoubleCoinsOffer = false;
+      });
+      return;
+    }
     if(G.overCd > 0) return;
     if(hitRect(mx,my,BTN_OVER_SHOP)){ openShop(); return; }
     if(hitRect(mx,my,BTN_OVER_DAILY)){ openDaily(); return; }
     resetRun();
     return;
   }
-
   if(G.state === 'paused'){
     if(hitRect(mx,my,BTN_PAUSE_RESUME)){ G.state='play'; sfx(660,0.10,'sine',0.05,880); return; }
     if(hitRect(mx,my,BTN_PAUSE_SETTINGS)){ openSettings(); return; }
@@ -3133,12 +3148,6 @@ PWA.init();
 /* ============================================================
    HOOK ANALYTICS INTO THE GAME
 ============================================================ */
-// Wrap the original gameOver / resetRun / shop / daily flows
-(function hookAnalytics(){
-  // Track game over and offer "double coins" rewarded ad
-  const _origGameOver = window.__ATW_gameOver__ || null; // reserved
-})();
-
 /* wrap resetRun */
 const _origResetRun = resetRun;
 resetRun = function(){
@@ -3200,9 +3209,8 @@ claimDaily = function(){
 /* ============================================================
    DOUBLE-COINS OFFER (rewarded ad on game over)
    Draws itself on top of the game-over overlay when active.
+   (BTN_DOUBLE_COINS is declared with the other buttons earlier)
 ============================================================ */
-const BTN_DOUBLE_COINS = { x:CW/2-150, y:355, w:300, h:50 };
-
 function drawDoubleCoinsOffer(){
   if(!G.showDoubleCoinsOffer) return;
   const b = BTN_DOUBLE_COINS;
@@ -3245,28 +3253,8 @@ drawOverlays = function(){
   if(G.state === 'over') drawDoubleCoinsOffer();
 };
 
-/* pointer: handle double-coins button */
-const _origPointerDown = null;
-cv.addEventListener('pointerdown', function(e){
-  if(G.state !== 'over' || !G.showDoubleCoinsOffer) return;
-  const rect = cv.getBoundingClientRect();
-  const mx = (e.clientX - rect.left) * (CW / rect.width);
-  const my = (e.clientY - rect.top)  * (CH / rect.height);
-  if(mx >= BTN_DOUBLE_COINS.x && mx <= BTN_DOUBLE_COINS.x + BTN_DOUBLE_COINS.w &&
-     my >= BTN_DOUBLE_COINS.y && my <= BTN_DOUBLE_COINS.y + BTN_DOUBLE_COINS.h){
-    e.stopImmediatePropagation();
-    Ads.showRewarded('double_coins', ()=>{
-      progress.totalCoins += G.coins;   // double it
-      saveProgress();
-      G.showDoubleCoinsOffer = false;
-      sfx(880,0.10,'sine',0.06,1320);
-      vibrate([20,30,20]);
-      Analytics.track('double_coins_reward');
-    }, ()=>{
-      G.showDoubleCoinsOffer = false;
-    });
-  }
-}, true);
+/* double-coins click is handled inside the main pointerdown handler
+   (see the "over" state branch — it checks showDoubleCoinsOffer first) */
 
 /* hide the offer when the player taps elsewhere or restarts */
 const _origResetRun2 = resetRun;
